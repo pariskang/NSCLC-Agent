@@ -1,0 +1,14 @@
+{
+  "id": "STAGE3C-cCRT-FEASIBLE",
+  "t": "T3",
+  "n": "N3",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "presentation": "66-year-old with squamous cell carcinoma, T3 primary with contralateral mediastinal nodal disease (N3). PET/CT and brain MRI confirm M0; supraclavicular node biopsy confirms N3. Disease is encompassable in a standard radiation plan; ECOG 1. EGFR/ALK negative; PD-L1 15%.",
+  "question": "Recommend definitive management, consolidation, and radiation approach.",
+  "clinical_scenario": "DEFINITIVE_CRT_CANDIDATE",
+  "curative_feasibility": "cCRT_FEASIBLE",
+  "histologic_category": "squamous",
+  "driver_mutations": { "egfr": "negative", "alk": "negative" },
+  "pd_l1": { "tps": 15 }
+}

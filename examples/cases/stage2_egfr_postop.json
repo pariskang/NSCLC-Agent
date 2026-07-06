@@ -1,0 +1,13 @@
+{
+  "id": "STAGE2-EGFR-POSTOP",
+  "t": "T2a",
+  "n": "N1",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "presentation": "62-year-old never-smoker. Lobectomy performed for a right upper lobe adenocarcinoma; pathology pT2aN1M0, R0 resection. EGFR exon 19 deletion present. ALK negative. PD-L1 TPS 30%.",
+  "question": "Recommend the adjuvant treatment pathway with evidence.",
+  "clinical_scenario": "POSTOP_RESECTED",
+  "histologic_category": "adenocarcinoma",
+  "driver_mutations": { "egfr": "Ex19del", "alk": "negative" },
+  "pd_l1": { "tc": 30, "assay": "SP263" }
+}

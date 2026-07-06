@@ -1,0 +1,13 @@
+{
+  "id": "STAGE3B-UNRESECTABLE-EGFR",
+  "t": "T4",
+  "n": "N2b",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "presentation": "59-year-old former smoker with a left lung adenocarcinoma invading the mediastinum plus multi-station ipsilateral mediastinal nodes (N2b). PET/CT and brain MRI confirm M0. EGFR L858R present. ECOG 1; adequate pulmonary reserve.",
+  "question": "Is this resectable? Recommend definitive management and consolidation.",
+  "clinical_scenario": "DEFINITIVE_CRT_CANDIDATE",
+  "resectability_category": "UNRESECTABLE",
+  "histologic_category": "adenocarcinoma",
+  "driver_mutations": { "egfr": "L858R", "alk": "negative" }
+}
