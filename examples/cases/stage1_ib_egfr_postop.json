@@ -1,0 +1,14 @@
+{
+  "id": "STAGE1-IB-EGFR-POSTOP",
+  "t": "T2a",
+  "n": "N0",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "presentation": "63-year-old never-smoker. Lobectomy for a 3.5 cm peripheral right upper lobe adenocarcinoma; pathology pT2aN0M0 (AJCC 9th ed. stage IB), R0. EGFR L858R present. PD-L1 TPS 30%. Good pulmonary reserve.",
+  "question": "Recommend post-resection management for this stage IB tumor.",
+  "clinical_scenario": "POSTOP_RESECTED",
+  "histologic_category": "adenocarcinoma",
+  "driver_mutations": { "egfr": "L858R", "alk": "negative" },
+  "pd_l1": { "tps": 30 },
+  "note_for_learner": "Watch the staging-edition trap: PD-L1 is NOT a stage I treatment driver, and KEYNOTE-091 (IB >=4 cm) does not apply to a current-edition 3.5 cm IB tumor. Adjuvant osimertinib (ADAURA) is the evidence-based option."
+}

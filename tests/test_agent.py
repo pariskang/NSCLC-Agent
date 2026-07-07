@@ -44,20 +44,27 @@ def test_stage_mismatch_flagged(agent):
     assert result.staging["stage_group"] == "IIIB"
 
 
-def test_iiia_uses_fallback_module(agent):
-    case = Case(t="T3", n="N2a", m="M0")  # stage IIIA, no module
+def test_iiia_routes_to_stage3a(agent):
+    case = Case(t="T3", n="N2a", m="M0")  # stage IIIA
     result = agent.run(case, dry_run=True)
     assert result.staging["stage_group"] == "IIIA"
-    assert result.module_key == "stage3b"
-    assert any("USING_FALLBACK_MODULE" in f for f in result.flags)
+    assert result.module_key == "stage3a"
+    assert not any("FALLBACK" in f for f in result.flags)
 
 
-def test_iiia_no_fallback_when_disabled():
-    agent = NSCLCAgent(load_config(), allow_fallback_module=False)
-    case = Case(t="T3", n="N2a", m="M0")
+def test_stage1_routes(agent):
+    case = Case(t="T1a", n="N0", m="M0")  # stage IA1
     result = agent.run(case, dry_run=True)
-    assert result.error is not None
+    assert result.staging["stage_group"] == "IA1"
+    assert result.module_key == "stage1"
+
+
+def test_occult_has_no_module(agent):
+    case = Case(t="TX", n="N0", m="M0")  # occult carcinoma, no module
+    result = agent.run(case, dry_run=True)
+    assert result.staging["stage_group"] == "Occult"
     assert result.module_key is None
+    assert result.error is not None
 
 
 def test_unresolved_stage_errors(agent):

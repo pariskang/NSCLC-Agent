@@ -13,15 +13,15 @@ from typing import Optional
 
 # Maps a stage group -> protocol module key (the filename stem in prompts/).
 _STAGE_TO_MODULE: dict[str, Optional[str]] = {
-    "0": None,
+    "0": "stage1",        # Tis / AIS-MIA — handled by the Stage I module
     "Occult": None,
-    "IA1": None,
-    "IA2": None,
-    "IA3": None,
-    "IB": None,
+    "IA1": "stage1",
+    "IA2": "stage1",
+    "IA3": "stage1",
+    "IB": "stage1",
     "IIA": "stage2",
     "IIB": "stage2",
-    "IIIA": None,      # module not provided in this release
+    "IIIA": "stage3a",
     "IIIB": "stage3b",
     "IIIC": "stage3c",
     "IVA": "stage4a",
@@ -30,22 +30,9 @@ _STAGE_TO_MODULE: dict[str, Optional[str]] = {
 
 # Human-readable guidance for stages without a dedicated module.
 _UNROUTED_GUIDANCE: dict[str, str] = {
-    "0": "Carcinoma in situ — definitive local therapy (resection/ablation); "
-         "outside the systemic-therapy modules.",
-    "Occult": "Occult carcinoma (TX N0 M0) — complete localization workup.",
-    "IA1": "Stage I — curative local therapy (lobectomy or SBRT); a dedicated "
-           "Stage I module is not included in this release.",
-    "IA2": "Stage I — curative local therapy (lobectomy or SBRT); a dedicated "
-           "Stage I module is not included in this release.",
-    "IA3": "Stage I — curative local therapy (lobectomy or SBRT); a dedicated "
-           "Stage I module is not included in this release.",
-    "IB": "Stage IB — curative local therapy ± adjuvant therapy for high-risk "
-          "features; a dedicated Stage I module is not included in this "
-          "release.",
-    "IIIA": "Stage IIIA — heterogeneous resectable/unresectable locally "
-            "advanced disease. The Stage IIIB module is the closest available "
-            "framework (resectability gate + driver branching); a dedicated "
-            "Stage IIIA module is not included in this release.",
+    "Occult": "Occult carcinoma (TX N0 M0) — the primary is not localized; "
+              "complete the localization/staging workup before selecting a "
+              "treatment module.",
 }
 
 
@@ -66,13 +53,12 @@ def route(stage_group: str) -> RouteResult:
     module = _STAGE_TO_MODULE[stage_group]
     if module is not None:
         return RouteResult(stage_group, module, True)
-    fallback = "stage3b" if stage_group == "IIIA" else None
     return RouteResult(
         stage_group,
         None,
         False,
         note=_UNROUTED_GUIDANCE.get(stage_group, "No module available."),
-        fallback_module_key=fallback,
+        fallback_module_key=None,
     )
 
 

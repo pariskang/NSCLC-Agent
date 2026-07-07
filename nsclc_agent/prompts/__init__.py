@@ -16,8 +16,12 @@ _PROMPT_DIR = Path(__file__).resolve().parent
 
 # module key -> (filename, human label, stage groups covered)
 MODULES: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "stage1": ("stage1.md", "Stage I (early-stage curative intent)",
+               ("0", "IA1", "IA2", "IA3", "IB")),
     "stage2": ("stage2.md", "Stage II (resectable node-positive, curative)",
                ("IIA", "IIB")),
+    "stage3a": ("stage3a.md",
+                "Stage IIIA (resectable / perioperative-adjuvant)", ("IIIA",)),
     "stage3b": ("stage3b.md", "Stage IIIB (locally advanced)", ("IIIB",)),
     "stage3c": ("stage3c.md", "Stage IIIC (N3 locally advanced)", ("IIIC",)),
     "stage4a": ("stage4a.md", "Stage IVA (M1a/M1b metastatic)", ("IVA",)),

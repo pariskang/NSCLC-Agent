@@ -110,16 +110,20 @@ register a branch in `providers/registry.py`.
 
 ## 7. Extending stage coverage
 
-To add, e.g., a Stage I or Stage IIIA module:
+Every treatment-bearing stage group (I → IVB) ships with a module today; only
+occult carcinoma (TX N0) is intentionally unrouted. Adding or specializing a
+module (e.g. a dedicated Stage 0 / AIS module, or splitting resectable vs
+unresectable IIIA) is a four-step, localized change:
 
-1. Drop `prompts/stage1.md` (the system-prompt protocol) into `prompts/`.
-2. Register it in `prompts/__init__.py::MODULES`.
+1. Drop `prompts/<key>.md` (the system-prompt protocol) into `prompts/`.
+2. Register it in `prompts/__init__.py::MODULES` with its stage groups.
 3. Point the relevant stage groups at it in
-   `staging/router.py::_STAGE_TO_MODULE` (e.g. `"IA1": "stage1"`).
-4. Add a couple of example cases and a routing test.
+   `staging/router.py::_STAGE_TO_MODULE` (e.g. `"IIIA": "stage3a"`).
+4. Add an example case and a routing test.
 
 No changes to the staging engine or provider layer are needed — that separation
-is the whole point.
+is the whole point. (Stages I and IIIA were added exactly this way, touching
+only the prompt loader, router, tests and examples.)
 
 ## 8. Testing strategy
 
@@ -132,4 +136,4 @@ is the whole point.
 - `test_agent.py` — end-to-end through the mock, including stage/label mismatch,
   IIIA fallback, and every shipped example case.
 
-All 82 tests run fully offline.
+All 86 tests run fully offline.

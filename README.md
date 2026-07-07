@@ -27,7 +27,7 @@ So the design **removes the model from that decision**:
                                        ▼
           ┌──────────────────────────────────────────────────────────┐
           │ 2. Stage router  ── stage group ──▶ protocol module       │
-          │    II · IIIB · IIIC · IVA · IVB  (I / IIIA flagged)       │
+          │    I · II · IIIA · IIIB · IIIC · IVA · IVB                │
           └───────────────────────────┬──────────────────────────────┘
                                        ▼
           ┌──────────────────────────────────────────────────────────┐
@@ -62,18 +62,19 @@ the *swappable inference backend* for teaching and evaluation.
 |---|---|---|
 | TNM-9 staging engine | `nsclc_agent/staging/tnm.py` | 9th edition incl. N2a/N2b, M1c1/M1c2, all migrations |
 | Stage router | `nsclc_agent/staging/router.py` | maps stage group → protocol module |
-| Protocol modules | `nsclc_agent/prompts/*.md` | Stage II, IIIB, IIIC, IVA, IVB (v3.3) |
+| Protocol modules | `nsclc_agent/prompts/*.md` | Stage I, II, IIIA, IIIB, IIIC, IVA, IVB (v3.3) |
 | Provider layer | `nsclc_agent/providers/` | LiteLLM · Azure · Poe · MiniMax · mock |
 | Agent orchestrator | `nsclc_agent/agent.py` | case → stage → route → prompt → LLM |
 | CLI | `nsclc_agent/cli.py` | `stage`, `route`, `run`, `batch`, `selftest`, … |
 | Example cases | `examples/cases/*.json` | one per stage band |
-| Tests | `tests/` | 82 tests, offline |
+| Tests | `tests/` | 86 tests, offline |
 
-**Stage coverage.** The engine stages *all* groups (0/I through IVB). Dedicated
-protocol modules ship for **II, IIIB, IIIC, IVA, IVB**. Stages **I** and
-**IIIA** are staged correctly but have no dedicated module in this release; the
-router flags this explicitly (IIIA optionally falls back to the IIIB
-resectability-gate framework). Drop new modules into `prompts/` to extend.
+**Stage coverage.** The engine stages *all* groups (0/I through IVB), and a
+dedicated protocol module ships for **every treatment-bearing stage**: Stage I
+(incl. Tis/AIS-MIA), II, IIIA, IIIB, IIIC, IVA and IVB. The only unrouted state
+is **occult carcinoma** (TX N0 M0), where the primary is not localized — the
+router flags it and asks for the localization workup rather than guessing. Drop
+new modules into `prompts/` to extend or specialize further.
 
 ---
 
@@ -240,7 +241,7 @@ model — useful for inspecting exactly what a backend would receive.
 
 ```bash
 pip install pytest
-python -m pytest -q        # 82 tests, fully offline
+python -m pytest -q        # 86 tests, fully offline
 ```
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture, the mapping to the

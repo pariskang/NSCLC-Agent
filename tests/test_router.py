@@ -7,8 +7,13 @@ from nsclc_agent.prompts import load_module, list_modules, PromptNotFound
 
 
 @pytest.mark.parametrize("stage_group,module", [
+    ("0", "stage1"),
+    ("IA1", "stage1"),
+    ("IA3", "stage1"),
+    ("IB", "stage1"),
     ("IIA", "stage2"),
     ("IIB", "stage2"),
+    ("IIIA", "stage3a"),
     ("IIIB", "stage3b"),
     ("IIIC", "stage3c"),
     ("IVA", "stage4a"),
@@ -20,17 +25,12 @@ def test_routing_available(stage_group, module):
     assert r.module_key == module
 
 
-@pytest.mark.parametrize("stage_group", ["0", "IA1", "IB", "IIIA"])
+@pytest.mark.parametrize("stage_group", ["Occult"])
 def test_routing_unavailable(stage_group):
     r = route(stage_group)
     assert not r.available
     assert r.module_key is None
     assert r.note
-
-
-def test_iiia_has_fallback():
-    r = route("IIIA")
-    assert r.fallback_module_key == "stage3b"
 
 
 def test_all_modules_loadable():
@@ -40,13 +40,16 @@ def test_all_modules_loadable():
 
 
 def test_module_content_matches_stage():
+    assert "STAGE I" in load_module("stage1").system_prompt
+    assert "Perioperative" in load_module("stage3a").system_prompt
     assert "STAGE IIIB" in load_module("stage3b").system_prompt
     assert "M1c1" in load_module("stage4b").system_prompt
 
 
 def test_available_modules_list():
     assert set(available_modules()) == {
-        "stage2", "stage3b", "stage3c", "stage4a", "stage4b"
+        "stage1", "stage2", "stage3a", "stage3b", "stage3c", "stage4a",
+        "stage4b"
     }
 
 
