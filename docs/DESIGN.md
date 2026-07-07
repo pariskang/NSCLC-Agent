@@ -34,16 +34,49 @@ rest:
 | Hidden state `S` (true TNM) | `TNM` descriptors | — |
 | Verifiable definitive staging | `staging/tnm.py` (symbolic engine) | stable |
 | Guideline-consistent policy | protocol modules + router | add modules |
-| Observation model `P(o\|s,a)` | (case fields provided as evidence) | per-test sensitivity/specificity metadata |
+| Observation model `P(o\|s,a)` | `imaging.py` — vision reader proposes descriptors from films | per-test sensitivity/specificity metadata |
 | Belief `b(s)` over stages | single computed stage today | replace point stage with a distribution |
-| Action selection / VOI | not yet (staging assumed complete) | a "what to check next" planner over `data_quality_flags` |
-| Uncertainty gate / escalation | `flags` + `MODULE_UNAVAILABLE` / MDT triggers in modules | calibrated UQ gate before `commit` |
-| Audit trail | `AgentResult.to_dict()` provenance | hash-chained event log |
+| Action selection / VOI | `NEXT_STEP_SUGGESTED` seed keyed to the unresolved descriptor | full "what to check next" planner over `data_quality_flags` |
+| Uncertainty gate / escalation | `flags` + `MODULE_UNAVAILABLE` / `IMAGING_DISCORDANCE` / MDT triggers | calibrated UQ gate before `commit` |
+| Audit trail | `AgentResult.to_dict()` provenance incl. `imaging` | hash-chained event log |
 
 The important property is that the **staging engine is already the
 "deterministic, verifiable definitive-staging module"** the vision calls for —
 the highest-hallucination-risk step is handled symbolically, and everything
 else is layered on top without contaminating it.
+
+## 2a. The perception layer (reading films)
+
+Real staging starts from images, not from a T/N/M someone typed in. The
+perception layer closes that gap while *preserving* the verifiable-staging
+property. Its one inviolable rule:
+
+> The vision model **proposes** radiographic descriptors. It **does not** assign
+> the stage group. The deterministic engine still does that.
+
+`imaging.py` sends the films to a vision-capable backend (Gemini via the Poe
+API by default) under an extraction prompt that (a) forbids naming a stage
+group, (b) forces the exact 9th-edition vocabulary, and (c) requires `null` +
+an `uncertainties` note for anything indeterminate (e.g. single- vs
+multi-station N2). The returned `ImagingFindings` are always stamped
+`MODEL_PROPOSED_UNVERIFIED` and folded into the case by `agent._ingest_imaging`:
+
+- **Case already has T/N/M** (human/pathologic) → the proposal is only a
+  *cross-check*; a mismatch raises `IMAGING_DISCORDANCE[…]` and the case value
+  is kept for staging.
+- **Case is missing a descriptor** → it is *seeded* from the proposal and
+  flagged `RADIOGRAPHIC_TNM_PROPOSED` (provisional cTNM), then the engine stages
+  it exactly as any other input.
+- **Descriptor still unresolved** → `NEXT_STEP_SUGGESTED` names the test that
+  would resolve it (EBUS for N, PET-CT + brain MRI for M …) — the first,
+  rule-based slice of value-of-information planning.
+
+The reasoning model receives the findings as *labeled, unverified context* in
+the user turn — never as the images themselves — so the reasoning backend need
+not be multimodal, and perception stays cleanly separable from reasoning. A
+failed read degrades gracefully (`IMAGING_READ_FAILED`) instead of aborting the
+run. DICOM is out of scope for the stdlib core: export slices to PNG/JPEG (or
+pass an `https` URL) first.
 
 ## 3. Module boundaries
 
@@ -55,15 +88,16 @@ nsclc_agent/
     selftest.py     authoritative expectation table (source of truth)
   prompts/        protocol modules (Markdown) + loader
   providers/      backend abstraction
-    base.py         LLMProvider ABC, Message, LLMResponse, GenerationParams
-    openai_compatible.py   stdlib HTTP for OpenAI-shaped APIs
+    base.py         LLMProvider ABC, Message (+ multimodal), LLMResponse, params
+    openai_compatible.py   stdlib HTTP for OpenAI-shaped APIs (text + vision)
     poe.py / minimax.py / azure.py    thin subclasses
     litellm_provider.py    optional SDK backend
-    mock.py         offline deterministic stub
+    mock.py         offline deterministic stub (+ mock vision read)
     registry.py     config dict → provider instance
-  case.py         case input model + user-turn rendering
+  imaging.py      perception layer: films → proposed descriptors (vision)
+  case.py         case input model (+ images) + user-turn rendering
   config.py       YAML/JSON config loading (+ built-in mock default)
-  agent.py        orchestration: resolve_stage → route → build_messages → complete
+  agent.py        orchestration: (read films →) resolve_stage → route → complete
   cli.py          argparse front-end
 ```
 
@@ -105,6 +139,14 @@ does request/parse over the Python standard library (`urllib`), honoring
 SDK-backed provider that unifies 100+ providers via the `model` string. The
 `mock` provider returns a deterministic JSON stub so the pipeline runs offline.
 
+**Vision** rides the same surface: a `Message` may carry `images`, and
+`to_openai()` emits the multimodal *content-parts* array that OpenAI-compatible
+vision endpoints expect — so no vision-specific transport is needed. A provider
+declares itself multimodal with `vision: true` in config (`supports_vision`),
+which lets the agent auto-select the film reader. The mock recognises the
+imaging-extraction prompt and returns an empty, honest findings stub so the
+whole perception path is testable offline.
+
 Adding a backend = subclass `LLMProvider` (or `OpenAICompatibleProvider`) and
 register a branch in `providers/registry.py`.
 
@@ -135,5 +177,9 @@ only the prompt loader, router, tests and examples.)
   env-var secret resolution, response parsing (no network).
 - `test_agent.py` — end-to-end through the mock, including stage/label mismatch,
   IIIA fallback, and every shipped example case.
+- `test_imaging.py` — the perception layer: image loading, JSON extraction, the
+  propose→verify contract (seed missing descriptors, flag discordance, keep the
+  case value authoritative), the next-step hint, and graceful read failure —
+  all via a fake in-process vision provider.
 
-All 86 tests run fully offline.
+All 106 tests run fully offline.

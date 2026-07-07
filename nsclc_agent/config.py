@@ -34,6 +34,9 @@ class Config:
     default_provider: str
     providers: dict[str, dict[str, Any]]
     generation: GenerationParams
+    #: provider used to read radiology films (perception layer). Falls back to
+    #: any provider flagged ``vision: true``, else the default provider.
+    vision_provider: Optional[str] = None
     source: Optional[str] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -107,10 +110,24 @@ def load_config(path: Optional[str | os.PathLike] = None) -> Config:
             f"default_provider {default_provider!r} is not among configured "
             f"providers: {', '.join(providers)}"
         )
+    vision_provider = raw.get("vision_provider")
+    if vision_provider is None:
+        # auto-pick the first provider explicitly flagged vision-capable
+        vision_provider = next(
+            (n for n, p in providers.items()
+             if isinstance(p, dict) and p.get("vision")),
+            None,
+        )
+    if vision_provider is not None and vision_provider not in providers:
+        raise ConfigError(
+            f"vision_provider {vision_provider!r} is not among configured "
+            f"providers: {', '.join(providers)}"
+        )
     return Config(
         default_provider=default_provider,
         providers=providers,
         generation=generation,
+        vision_provider=vision_provider,
         source=source,
         raw=raw,
     )

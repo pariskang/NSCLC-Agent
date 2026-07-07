@@ -9,6 +9,12 @@
 
 default_provider: mock
 
+# Provider used by the perception layer to READ radiology films into candidate
+# TNM descriptors. Optional. If omitted, the agent auto-picks the first provider
+# flagged `vision: true`. The film reader only PROPOSES descriptors — the
+# deterministic engine still assigns the stage.
+vision_provider: gemini_vision
+
 generation:
   temperature: 0.2      # low temperature for reproducible teaching output
   max_tokens: 4096
@@ -40,6 +46,16 @@ providers:
   poe:
     type: poe
     model: GPT-4o                 # e.g. GPT-4o, Claude-Sonnet-4, Gemini-2.5-Pro
+    api_key_env: POE_API_KEY
+
+  # -- Vision backend for reading films (读片): Gemini via Poe.
+  #    `vision: true` marks it multimodal so it can be auto-selected as the
+  #    vision_provider. `model` is the Poe bot name — set it to the Gemini bot
+  #    your Poe account exposes (e.g. Gemini-3.1-Pro, Gemini-2.5-Pro).
+  gemini_vision:
+    type: poe
+    model: Gemini-3.1-Pro
+    vision: true
     api_key_env: POE_API_KEY
 
   # -- MiniMax (OpenAI-shaped /text/chatcompletion_v2).

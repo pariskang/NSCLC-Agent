@@ -23,13 +23,16 @@ class Case:
     staging_system: str = "AJCC9"
     presentation: str = ""
     question: str = ""
+    #: radiology film references (file paths, data: URLs, or http(s) URLs) to
+    #: be read by the vision/perception layer into candidate TNM descriptors.
+    images: list[str] = field(default_factory=list)
     fields: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Case":
         known = {
             "case_id", "t", "n", "m", "stage_group", "staging_system",
-            "presentation", "question",
+            "presentation", "question", "images",
         }
         core = {k: data.get(k) for k in known if k in data}
         # accept common aliases
@@ -45,7 +48,14 @@ class Case:
                   if k not in known and k not in ("id", "t_category",
                                                    "n_category", "m_category")}
         core.setdefault("staging_system", "AJCC9")
+        if isinstance(core.get("images"), str):
+            core["images"] = [core["images"]]
+        elif core.get("images") is None and "images" in core:
+            core["images"] = []
         return cls(fields=extras, **core)
+
+    def has_images(self) -> bool:
+        return bool(self.images)
 
     def has_tnm(self) -> bool:
         return bool(self.t and self.n)

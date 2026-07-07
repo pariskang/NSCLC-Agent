@@ -51,9 +51,11 @@ def build_provider(
         raise ProviderError(f"Provider {name!r} is missing a 'type' field")
     params = _gen_params(cfg, defaults)
 
+    vision = bool(cfg.get("vision", False))
+
     if kind == "mock":
         return MockProvider(name=name, model=cfg.get("model", "mock-echo"),
-                            params=params)
+                            params=params, supports_vision=vision)
 
     if kind == "litellm":
         return LiteLLMProvider(
@@ -61,6 +63,7 @@ def build_provider(
             api_key=_resolve_secret(cfg, "api_key", "api_key_env"),
             api_base=cfg.get("api_base"),
             extra_kwargs=cfg.get("extra_kwargs"),
+            supports_vision=vision,
         )
 
     if kind == "azure":
@@ -70,6 +73,7 @@ def build_provider(
             endpoint=cfg.get("endpoint", ""),
             api_version=cfg.get("api_version", "2024-10-21"),
             timeout=float(cfg.get("timeout", 120.0)),
+            supports_vision=vision,
         )
 
     if kind == "poe":
@@ -78,6 +82,7 @@ def build_provider(
             api_key=_resolve_secret(cfg, "api_key", "api_key_env") or "",
             base_url=cfg.get("base_url", "https://api.poe.com/v1"),
             timeout=float(cfg.get("timeout", 120.0)),
+            supports_vision=vision,
         )
 
     if kind == "minimax":
@@ -87,6 +92,7 @@ def build_provider(
             base_url=cfg.get("base_url", "https://api.minimaxi.com/v1"),
             group_id=_resolve_secret(cfg, "group_id", "group_id_env"),
             timeout=float(cfg.get("timeout", 120.0)),
+            supports_vision=vision,
         )
 
     raise ProviderError(

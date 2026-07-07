@@ -5,7 +5,8 @@ Subcommands:
   route      Show which protocol module a stage/case maps to.
   modules    List available protocol modules.
   providers  List configured providers.
-  run        Stage → route → prompt → LLM for one case.
+  read       Read radiology films into proposed TNM descriptors (vision).
+  run        (optional read films →) stage → route → prompt → LLM for one case.
   batch      Run every case file in a directory.
   selftest   Run the built-in staging self-test.
 """
@@ -93,13 +94,15 @@ def cmd_providers(args) -> int:
     cfg = _load_config_or_exit(args.config)
     print(f"Config source: {cfg.source}")
     print(f"Default provider: {cfg.default_provider}")
+    print(f"Vision provider: {cfg.vision_provider or '(none configured)'}")
     print(f"Generation: temperature={cfg.generation.temperature}, "
           f"max_tokens={cfg.generation.max_tokens}\n")
     for name, pcfg in cfg.providers.items():
         marker = "*" if name == cfg.default_provider else " "
         kind = pcfg.get("type", "?")
         model = pcfg.get("model") or pcfg.get("deployment") or ""
-        print(f" {marker} {name:12s} type={kind:10s} model={model}")
+        vis = " [vision]" if pcfg.get("vision") else ""
+        print(f" {marker} {name:12s} type={kind:10s} model={model}{vis}")
     return 0
 
 
@@ -108,6 +111,12 @@ def _print_result(result, as_json: bool, show_prompt: bool = False) -> None:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return
     print(f"Case: {result.case_id or '(unnamed)'}")
+    if result.imaging:
+        img = result.imaging
+        print(f"  Imaging (proposed, UNVERIFIED): "
+              f"cT={img.get('candidate_t')} cN={img.get('candidate_n')} "
+              f"cM={img.get('candidate_m')} "
+              f"[{img.get('read_by', {}).get('model')}]")
     if result.staging:
         print(f"  Stage: {result.staging['stage_group']} "
               f"({result.staging['edition']})")
@@ -124,25 +133,59 @@ def _print_result(result, as_json: bool, show_prompt: bool = False) -> None:
         print(result.response.content)
 
 
+def cmd_read(args) -> int:
+    """Read radiology films into model-proposed descriptors (perception layer)."""
+    cfg = _load_config_or_exit(args.config)
+    agent = NSCLCAgent(cfg, vision_provider=args.provider)
+    case = Case(images=list(args.images), presentation=args.context or "")
+    try:
+        findings = agent.read_imaging(case, provider=args.provider)
+    except Exception as exc:  # ImagingError / ProviderError / etc.
+        print(f"Imaging read failed: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(findings.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        print("Radiographic findings (MODEL-PROPOSED, UNVERIFIED):")
+        print(f"  modality:  {findings.modality}")
+        print(f"  cT:        {findings.candidate_t}")
+        print(f"  cN:        {findings.candidate_n}  "
+              f"stations={findings.nodal_stations}")
+        print(f"  cM:        {findings.candidate_m}  "
+              f"sites={findings.metastatic_sites}")
+        print(f"  effusion:  {findings.malignant_effusion}")
+        print(f"  confidence:{findings.confidence}")
+        for u in findings.uncertainties:
+            print(f"  ⚑ uncertainty: {u}")
+        print(f"  read by:   {findings.provider} / {findings.model} "
+              f"({findings.n_images} image(s))")
+    return 0
+
+
 def cmd_run(args) -> int:
     cfg = _load_config_or_exit(args.config)
     agent = NSCLCAgent(cfg)
     if args.case:
         case = _read_case(args.case)
+        if args.images:
+            case.images = list(args.images)
     else:
         case = Case(
             case_id=args.id, t=args.t, n=args.n, m=args.m,
             stage_group=args.stage_group,
             presentation=args.presentation or "",
             question=args.question or "",
+            images=list(args.images) if args.images else [],
         )
+    if args.vision_provider:
+        agent.vision_provider = args.vision_provider
     params = None
     if args.temperature is not None or args.max_tokens is not None:
         params = cfg.generation.merged(
             temperature=args.temperature, max_tokens=args.max_tokens
         )
     result = agent.run(case, provider=args.provider, params=params,
-                       dry_run=args.dry_run)
+                       dry_run=args.dry_run, read_films=not args.no_read_films)
     _print_result(result, args.json)
     return 0 if not result.error else 1
 
@@ -222,6 +265,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--stage-group", dest="stage_group")
     run.add_argument("--presentation")
     run.add_argument("--question")
+    run.add_argument("--images", nargs="+",
+                     help="Radiology film(s) to read (file paths or URLs)")
+    run.add_argument("--vision-provider", dest="vision_provider",
+                     help="Provider used to read films (default: config "
+                          "vision_provider)")
+    run.add_argument("--no-read-films", action="store_true",
+                     dest="no_read_films",
+                     help="Do not read attached films (skip the vision step)")
     run.add_argument("-p", "--provider")
     run.add_argument("--temperature", type=float)
     run.add_argument("--max-tokens", type=int, dest="max_tokens")
@@ -229,6 +280,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Assemble the prompt but do not call the model")
     run.add_argument("--json", action="store_true")
     run.set_defaults(func=cmd_run)
+
+    rd = sub.add_parser("read", help="Read films into proposed TNM descriptors")
+    rd.add_argument("--images", nargs="+", required=True,
+                    help="Radiology film(s): file paths, data: or http(s) URLs")
+    rd.add_argument("-c", "--config")
+    rd.add_argument("-p", "--provider",
+                    help="Vision provider (default: config vision_provider)")
+    rd.add_argument("--context", help="Optional clinical context for the reader")
+    rd.add_argument("--json", action="store_true")
+    rd.set_defaults(func=cmd_read)
 
     b = sub.add_parser("batch", help="Run all case files in a directory")
     b.add_argument("directory")

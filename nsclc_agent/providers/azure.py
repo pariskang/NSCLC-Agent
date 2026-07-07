@@ -29,6 +29,7 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
         endpoint: str,
         api_version: str = DEFAULT_API_VERSION,
         timeout: float = 120.0,
+        supports_vision: bool = False,
     ):
         if not endpoint:
             raise ProviderError(
@@ -46,6 +47,7 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
             timeout=timeout,
             auth_scheme="api-key",
             send_model_in_body=False,
+            supports_vision=supports_vision,
         )
         self.endpoint = endpoint
         self.deployment = deployment

@@ -5,7 +5,10 @@ cancer (NSCLC)**, built for **teaching, training-data generation, and model
 testing**. It pairs a **deterministic AJCC/UICC 9th-edition staging engine**
 with the stage-specific clinical protocol modules (v3.3, 2026-06) and a
 **pluggable LLM backend** that runs on **LiteLLM, Azure OpenAI, Poe, or
-MiniMax** (plus an offline mock).
+MiniMax** (plus an offline mock). An optional **perception layer reads radiology
+films (读片)** through a vision model (e.g. **Gemini via the Poe API**) — it
+*proposes* radiographic TNM descriptors that flow into the deterministic engine,
+and never assigns the stage itself.
 
 > ⚠️ **Educational / research use only.** This is not a medical device. Output
 > must never be used for real patient care without review by a qualified
@@ -21,6 +24,12 @@ So the design **removes the model from that decision**:
 
 ```
           ┌──────────────────────────────────────────────────────────┐
+ films ─▶ │ 0. Perception (optional) ── vision model (Gemini/Poe)     │
+ (读片)   │    reads films ──▶ PROPOSES cT/cN/cM  (never the stage)   │
+          │    cross-checks or seeds the descriptors, flags mismatch  │
+          └───────────────────────────┬──────────────────────────────┘
+                                       ▼
+          ┌──────────────────────────────────────────────────────────┐
    case ─▶ │ 1. Deterministic TNM-9 staging engine (pure Python)      │
           │    (T,N,M) ───▶ stage group   — verifiable, unit-tested   │
           └───────────────────────────┬──────────────────────────────┘
@@ -33,7 +42,7 @@ So the design **removes the model from that decision**:
           ┌──────────────────────────────────────────────────────────┐
           │ 3. Prompt assembly: module system prompt                  │
           │    + injected, authoritative stage (model does not        │
-          │      re-derive it)  +  the case as the user turn          │
+          │      re-derive it)  +  case + proposed findings (labeled) │
           └───────────────────────────┬──────────────────────────────┘
                                        ▼
           ┌──────────────────────────────────────────────────────────┐
@@ -63,11 +72,12 @@ the *swappable inference backend* for teaching and evaluation.
 | TNM-9 staging engine | `nsclc_agent/staging/tnm.py` | 9th edition incl. N2a/N2b, M1c1/M1c2, all migrations |
 | Stage router | `nsclc_agent/staging/router.py` | maps stage group → protocol module |
 | Protocol modules | `nsclc_agent/prompts/*.md` | Stage I, II, IIIA, IIIB, IIIC, IVA, IVB (v3.3) |
-| Provider layer | `nsclc_agent/providers/` | LiteLLM · Azure · Poe · MiniMax · mock |
-| Agent orchestrator | `nsclc_agent/agent.py` | case → stage → route → prompt → LLM |
-| CLI | `nsclc_agent/cli.py` | `stage`, `route`, `run`, `batch`, `selftest`, … |
-| Example cases | `examples/cases/*.json` | one per stage band |
-| Tests | `tests/` | 86 tests, offline |
+| Perception layer | `nsclc_agent/imaging.py` | reads films → proposed cTNM (vision, e.g. Gemini/Poe) |
+| Provider layer | `nsclc_agent/providers/` | LiteLLM · Azure · Poe · MiniMax · mock (text + vision) |
+| Agent orchestrator | `nsclc_agent/agent.py` | (read films →) case → stage → route → prompt → LLM |
+| CLI | `nsclc_agent/cli.py` | `stage`, `route`, `read`, `run`, `batch`, `selftest`, … |
+| Example cases | `examples/cases/*.json` | one per stage band + an imaging cross-check case |
+| Tests | `tests/` | 106 tests, offline |
 
 **Stage coverage.** The engine stages *all* groups (0/I through IVB), and a
 dedicated protocol module ships for **every treatment-bearing stage**: Stage I
@@ -152,6 +162,14 @@ poe:
   type: poe
   model: GPT-4o           # e.g. Claude-Sonnet-4, Gemini-2.5-Pro, ...
   api_key_env: POE_API_KEY
+
+# A vision backend for reading films — Gemini via Poe. `vision: true` marks it
+# multimodal so it can be auto-selected as the film reader.
+gemini_vision:
+  type: poe
+  model: Gemini-3.1-Pro   # the Gemini bot name your Poe account exposes
+  vision: true
+  api_key_env: POE_API_KEY
 ```
 
 ### MiniMax  (direct, no extra deps)
@@ -193,6 +211,44 @@ of truth for both `selftest` and the pytest suite.
 
 ---
 
+## Reading films (读片) — the perception layer
+
+Real staging starts from imaging. A vision-capable backend (Gemini via Poe by
+default) can read CT / PET-CT / MRI slices and **propose** candidate
+radiographic descriptors — but the contract is strict:
+
+> The vision model **proposes** descriptors; it **never** assigns the stage
+> group. The deterministic engine still does that.
+
+```bash
+# Read films into proposed descriptors (no staging)
+python -m nsclc_agent read -c config.yaml -p gemini_vision \
+    --images scan1.png scan2.png --context "68F, LUL mass, staging PET-CT"
+
+# Attach films to a full run — the reader seeds/cross-checks TNM, the engine stages
+python -m nsclc_agent run -c config.yaml --images scan1.png scan2.png \
+    --question "Recommended pathway?"
+```
+
+What the perception layer does with the proposal:
+
+| Situation | Behavior | Flag |
+|---|---|---|
+| Case already has T/N/M (path/human) | proposal is a **cross-check** only; case value stays authoritative | `IMAGING_DISCORDANCE[…]` on mismatch |
+| Case missing a descriptor | descriptor is **seeded** from the proposal, then staged | `RADIOGRAPHIC_TNM_PROPOSED` |
+| Descriptor unresolved on film | names the test that would resolve it (EBUS for N, PET-CT+brain MRI for M) | `NEXT_STEP_SUGGESTED` |
+| Vision backend errors | run continues on whatever TNM the case has | `IMAGING_READ_FAILED` |
+
+Findings are recorded under `result.imaging` as `MODEL_PROPOSED_UNVERIFIED` and
+passed to the reasoning model as *labeled, unverified context* — the reasoning
+backend need not be multimodal. Images are base64-encoded with the standard
+library; **DICOM is not parsed** — export slices to PNG/JPEG (or pass an
+`https` URL). Only use **de-identified** images. Behind the offline mock (which
+cannot read images) the read returns empty on purpose, so the wiring runs
+everywhere while real reading needs a configured vision backend.
+
+---
+
 ## Programmatic use
 
 ```python
@@ -218,6 +274,21 @@ r = stage_from_strings("T2b", "N2b", "M0")
 print(r.stage_group, r.migration_notes)   # IIIB  ['T2N2b upstaged ...']
 ```
 
+Reading films, then running with the proposal folded in:
+
+```python
+from nsclc_agent import NSCLCAgent, Case, load_config
+
+agent = NSCLCAgent(load_config("config.yaml"))       # vision_provider set in config
+case = Case(images=["pet_ct_slice.png"],
+            presentation="64M, LUL mass, staging PET-CT + brain MRI",
+            question="Management pathway?")
+result = agent.run(case)                              # reads films → stages → routes
+print(result.imaging["candidate_n"])                 # model-proposed cN (UNVERIFIED)
+print(result.staging["stage_group"])                 # engine-computed stage
+print([f for f in result.flags if "IMAGING" in f or "NEXT_STEP" in f])
+```
+
 ---
 
 ## CLI reference
@@ -227,13 +298,17 @@ print(r.stage_group, r.migration_notes)   # IIIB  ['T2N2b upstaged ...']
 | `stage T N [M]` | Deterministically stage a TNM triple (`--json` for machine output) |
 | `route STAGE` | Show the module a stage group maps to |
 | `modules` | List protocol modules and coverage |
-| `providers [-c cfg]` | List configured backends |
-| `run [--case f.json \| --t --n --m …] [-p provider] [--dry-run]` | Run one case |
+| `providers [-c cfg]` | List configured backends (marks `[vision]` ones) |
+| `read --images … [-p provider]` | Read films into proposed TNM descriptors (no staging) |
+| `run [--case f.json \| --t --n --m …] [--images …] [-p provider] [--dry-run]` | Run one case |
 | `batch DIR [-o OUT]` | Run every `*.json` case in a directory |
 | `selftest` | Validate the staging engine |
 
 `--dry-run` assembles the full prompt and prints routing without calling any
-model — useful for inspecting exactly what a backend would receive.
+model — useful for inspecting exactly what a backend would receive (it also
+skips film reading, since that is a model call). Attach films to `run` with
+`--images`; choose the reader with `--vision-provider` or disable it with
+`--no-read-films`.
 
 ---
 
@@ -241,7 +316,7 @@ model — useful for inspecting exactly what a backend would receive.
 
 ```bash
 pip install pytest
-python -m pytest -q        # 86 tests, fully offline
+python -m pytest -q        # 106 tests, fully offline
 ```
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture, the mapping to the
@@ -255,6 +330,10 @@ active-perception / verifiable-staging design goals, and extension points.
 - The agent never overrides the deterministic stage and flags every ambiguity
   (`STAGE_MISMATCH`, `MODULE_UNAVAILABLE`, `STAGING_ERROR`, …) instead of
   silently proceeding.
+- Film reading is **advisory**: descriptors are labeled
+  `MODEL_PROPOSED_UNVERIFIED`, cross-checked against human/pathologic TNM
+  (`IMAGING_DISCORDANCE`), and never used to assign the stage directly. Use
+  only de-identified images.
 
 ## License
 

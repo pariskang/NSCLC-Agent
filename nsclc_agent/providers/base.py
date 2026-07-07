@@ -20,9 +20,25 @@ class ProviderError(RuntimeError):
 class Message:
     role: str  # "system" | "user" | "assistant"
     content: str
+    #: optional image references (``data:`` or ``http(s):`` URLs) attached to a
+    #: user turn, for vision-capable models. Empty for text-only messages.
+    images: list[str] = field(default_factory=list)
 
     def to_openai(self) -> dict:
-        return {"role": self.role, "content": self.content}
+        """Render as an OpenAI chat message.
+
+        Text-only messages use the plain-string ``content`` form. When images
+        are attached, content becomes the multimodal *parts* array that
+        OpenAI-compatible vision endpoints (incl. Poe → Gemini) expect.
+        """
+        if not self.images:
+            return {"role": self.role, "content": self.content}
+        parts: list[dict] = []
+        if self.content:
+            parts.append({"type": "text", "text": self.content})
+        for url in self.images:
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        return {"role": self.role, "content": parts}
 
 
 @dataclass
@@ -74,6 +90,10 @@ class LLMProvider(ABC):
         self.name = name
         self.model = model
         self.params = params
+        #: whether this backend/model can accept image inputs. Advisory: it
+        #: gates default vision-provider selection and is reported in
+        #: ``describe()``; it does not hard-block a call.
+        self.supports_vision: bool = False
 
     @abstractmethod
     def complete(
@@ -82,4 +102,9 @@ class LLMProvider(ABC):
         """Run a single chat completion."""
 
     def describe(self) -> dict:
-        return {"name": self.name, "kind": self.kind, "model": self.model}
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "model": self.model,
+            "supports_vision": self.supports_vision,
+        }

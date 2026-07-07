@@ -57,6 +57,7 @@ class OpenAICompatibleProvider(LLMProvider):
         auth_scheme: str = "bearer",  # "bearer" | "api-key" | "none"
         extra_headers: Optional[dict[str, str]] = None,
         send_model_in_body: bool = True,
+        supports_vision: bool = False,
     ):
         super().__init__(name, model, params)
         if not api_key and auth_scheme != "none":
@@ -71,6 +72,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self.auth_scheme = auth_scheme
         self.extra_headers = extra_headers or {}
         self.send_model_in_body = send_model_in_body
+        self.supports_vision = supports_vision
         self._ctx = _ssl_context()
 
     # -- hooks subclasses may override --------------------------------------

@@ -35,11 +35,13 @@ class LiteLLMProvider(LLMProvider):
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
         extra_kwargs: Optional[dict[str, Any]] = None,
+        supports_vision: bool = False,
     ):
         super().__init__(name, model, params)
         self.api_key = api_key
         self.api_base = api_base
         self.extra_kwargs = extra_kwargs or {}
+        self.supports_vision = supports_vision
 
     def _litellm(self):
         try:

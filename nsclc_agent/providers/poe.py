@@ -25,6 +25,7 @@ class PoeProvider(OpenAICompatibleProvider):
         api_key: str,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 120.0,
+        supports_vision: bool = False,
     ):
         super().__init__(
             name, model, params,
@@ -33,4 +34,5 @@ class PoeProvider(OpenAICompatibleProvider):
             chat_path="/chat/completions",
             timeout=timeout,
             auth_scheme="bearer",
+            supports_vision=supports_vision,
         )
