@@ -43,8 +43,10 @@ def _read_case(path: str) -> Case:
 
 
 def cmd_stage(args) -> int:
+    m_assumed = args.m is None
+    m_value = args.m if args.m is not None else "M0"
     try:
-        result = stage_from_strings(args.t, args.n, args.m)
+        result = stage_from_strings(args.t, args.n, m_value)
     except StagingError as exc:
         print(f"Staging error: {exc}", file=sys.stderr)
         return 1
@@ -52,9 +54,15 @@ def cmd_stage(args) -> int:
     out = result.to_dict()
     out["module"] = {"key": r.module_key, "available": r.available,
                      "note": r.note}
+    if m_assumed:
+        out["m_assumed"] = True
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=2))
     else:
+        if m_assumed:
+            print("  ⚠ M not supplied — assuming M0 FOR THIS CALCULATION ONLY. "
+                  "M0 is a conclusion after metastatic workup, not a default; "
+                  "confirm M before any clinical use.")
         print(f"TNM {result.tnm}  →  Stage {result.stage_group} "
               f"({result.edition})")
         for note in result.migration_notes:
@@ -242,7 +250,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("stage", help="Deterministically stage a TNM triple")
     sp.add_argument("t"); sp.add_argument("n")
-    sp.add_argument("m", nargs="?", default="M0")
+    sp.add_argument("m", nargs="?", default=None,
+                    help="M category; if omitted, M0 is ASSUMED for the "
+                         "calculation with a warning (M0 is not a default)")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_stage)
 

@@ -81,6 +81,30 @@ def test_bad_tnm_flagged(agent):
     assert any("STAGING_ERROR" in f for f in result.flags)
 
 
+def test_missing_m_blocks_staging(agent):
+    # P0: T and N present but M omitted must NOT default to M0
+    case = Case(t="T1a", n="N0")  # no M
+    result = agent.run(case)
+    assert result.error is not None
+    assert any("STAGING_INCOMPLETE_M_UNKNOWN" in f for f in result.flags)
+    assert result.module_key is None
+
+
+def test_unsupported_edition_refused(agent):
+    case = Case(t="T2a", n="N0", m="M0", staging_system="AJCC8")
+    result = agent.run(case)
+    assert result.error is not None
+    assert any("STAGING_EDITION_UNSUPPORTED" in f for f in result.flags)
+
+
+def test_stage_from_label_marks_edition_unverified(agent):
+    case = Case(stage_group="IIIB")  # label only, no TNM
+    stage_result, flags = agent.resolve_stage(case)
+    assert stage_result is not None
+    assert stage_result.edition == "unverified (from provided label)"
+    assert any("STAGE_FROM_LABEL" in f for f in flags)
+
+
 def test_staging_preamble_injected(agent):
     case = Case(t="T2b", n="N2b", m="M0")
     stage_result, _ = agent.resolve_stage(case)

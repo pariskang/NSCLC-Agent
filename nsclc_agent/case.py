@@ -21,6 +21,11 @@ class Case:
     m: Optional[str] = None
     stage_group: Optional[str] = None
     staging_system: str = "AJCC9"
+    #: metastatic phenotype — a separate axis from the stage group. IVA/IVB do
+    #: NOT by themselves equal oligo-/polymetastatic; this records the phenotype
+    #: explicitly when known (e.g. "synchronous_oligometastatic",
+    #: "oligoprogressive", "polymetastatic").
+    metastatic_state: Optional[str] = None
     presentation: str = ""
     question: str = ""
     #: radiology film references (file paths, data: URLs, or http(s) URLs) to
@@ -32,7 +37,7 @@ class Case:
     def from_dict(cls, data: dict[str, Any]) -> "Case":
         known = {
             "case_id", "t", "n", "m", "stage_group", "staging_system",
-            "presentation", "question", "images",
+            "metastatic_state", "presentation", "question", "images",
         }
         core = {k: data.get(k) for k in known if k in data}
         # accept common aliases
@@ -58,13 +63,28 @@ class Case:
         return bool(self.images)
 
     def has_tnm(self) -> bool:
+        """Any T/N provided (may still be incomplete — see has_complete_tnm)."""
         return bool(self.t and self.n)
+
+    def has_complete_tnm(self) -> bool:
+        """All three of T, N and M explicitly provided.
+
+        M is required: 'M0' is a conclusion reached after metastatic workup, not
+        a value the engine may assume from a missing field.
+        """
+        return bool(self.t and self.n and self.m)
 
     def render_user_message(self) -> str:
         """Compose the user turn from presentation, structured fields, question."""
         parts: list[str] = []
         if self.presentation:
             parts.append(self.presentation.strip())
+        if self.metastatic_state:
+            parts.append(
+                f"Metastatic phenotype (separate axis from the stage group): "
+                f"{self.metastatic_state}. Do not infer oligo-/polymetastatic "
+                f"status from the IVA/IVB label alone."
+            )
         if self.fields:
             import json
             parts.append(

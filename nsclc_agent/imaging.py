@@ -62,11 +62,17 @@ class ImagingError(RuntimeError):
 def load_image_ref(ref: str) -> str:
     """Resolve one image reference to a URL usable in a vision message.
 
-    Accepts a local file path, an existing ``data:`` URL, or an ``http(s)``
-    URL. Local files are base64-encoded into a ``data:`` URL with the standard
-    library so no network fetch or extra dependency is needed.
+    Accepts a local file path, an existing ``data:`` URL, or an ``https`` URL.
+    Plaintext ``http://`` is refused — potentially identifying medical images
+    must not traverse an unencrypted connection. Local files are base64-encoded
+    into a ``data:`` URL with the standard library (no network fetch).
     """
-    if ref.startswith(("data:", "http://", "https://")):
+    if ref.startswith("http://"):
+        raise ImagingError(
+            "Refusing an http:// image URL: medical images must not be sent "
+            "over an unencrypted connection. Use https:// or a local file."
+        )
+    if ref.startswith(("data:", "https://")):
         return ref
     path = Path(ref).expanduser()
     if not path.is_file():
@@ -132,7 +138,8 @@ class ImagingFindings:
 
     def to_dict(self) -> dict:
         return {
-            "status": "MODEL_PROPOSED_UNVERIFIED",
+            "status": "AI_SUGGESTED_FINDINGS_FOR_RADIOLOGIST_REVIEW",
+            "requires_radiologist_review": True,
             "modality": self.modality,
             "candidate_t": self.candidate_t,
             "candidate_n": self.candidate_n,
@@ -289,23 +296,63 @@ class ImagingReader:
     def _to_findings(
         data: dict, provider: str, model: str, n_images: int
     ) -> ImagingFindings:
+        uncertainties = [str(u) for u in data.get("uncertainties") or []]
+
+        # Validate proposed descriptors against the engine vocabulary. An
+        # out-of-vocabulary value is dropped (not silently staged) and noted.
+        def _descriptor(field: str, allowed: tuple[str, ...]) -> Optional[str]:
+            val = _norm(data.get(field))
+            if val is None:
+                return None
+            if val not in allowed:
+                uncertainties.append(
+                    f"{field}={val!r} is not a valid 9th-edition descriptor; "
+                    f"dropped (not used for staging).")
+                return None
+            return val
+
         eff = data.get("malignant_effusion")
         if isinstance(eff, str):
             eff = {"true": True, "false": False}.get(eff.strip().lower())
+        eff = eff if isinstance(eff, bool) else None
+
+        conf = _norm(data.get("confidence"))
+        if conf is not None and conf.lower() not in (
+                "high", "moderate", "low", "none", "very low"):
+            uncertainties.append(f"confidence={conf!r} unrecognised; treated "
+                                 f"as low.")
+            conf = "low"
+
+        cand_m = _descriptor("candidate_m", M_CATEGORIES)
+        # Consistency: a malignant effusion is at least M1a intrathoracic.
+        if eff is True and cand_m in ("M0", None):
+            uncertainties.append(
+                "Reader marked a malignant effusion but candidate_m is not "
+                "M1a+; malignant pleural/pericardial effusion is M1a (Stage "
+                "IVA) — descriptor requires reconciliation.")
+
+        lesions = []
+        for d in (data.get("measurable_lesions") or []):
+            if not isinstance(d, dict):
+                continue
+            size = d.get("long_axis_mm")
+            if isinstance(size, (int, float)) and size <= 0:
+                uncertainties.append(
+                    f"measurable lesion with non-positive size {size} dropped.")
+                continue
+            lesions.append(d)
+
         return ImagingFindings(
             modality=_norm(data.get("modality")),
-            candidate_t=_norm(data.get("candidate_t")),
-            candidate_n=_norm(data.get("candidate_n")),
-            candidate_m=_norm(data.get("candidate_m")),
+            candidate_t=_descriptor("candidate_t", T_CATEGORIES),
+            candidate_n=_descriptor("candidate_n", N_CATEGORIES),
+            candidate_m=cand_m,
             nodal_stations=[str(s) for s in data.get("nodal_stations") or []],
-            measurable_lesions=[
-                d for d in (data.get("measurable_lesions") or [])
-                if isinstance(d, dict)
-            ],
-            malignant_effusion=eff if isinstance(eff, bool) else None,
+            measurable_lesions=lesions,
+            malignant_effusion=eff,
             metastatic_sites=[str(s) for s in data.get("metastatic_sites") or []],
-            confidence=_norm(data.get("confidence")),
-            uncertainties=[str(u) for u in data.get("uncertainties") or []],
+            confidence=conf,
+            uncertainties=uncertainties,
             provider=provider,
             model=model,
             n_images=n_images,

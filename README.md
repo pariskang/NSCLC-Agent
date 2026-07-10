@@ -53,15 +53,16 @@ So the design **removes the model from that decision**:
 
 The staging engine computes the stage symbolically and **injects it into the
 system prompt as authoritative**, so the model reasons *within* a verified
-stage rather than guessing it. Every run returns full provenance (staging,
-migrations, routing, flags) for auditing — the property that makes generated
-teaching/RLHF data trustworthy.
+stage rather than guessing it. Around that core, code-level guards enforce what
+prose in a prompt cannot: unknown M is never defaulted to M0, low-confidence
+film readings never drive a stage, clinical hard-gates run outside the model,
+and model output is parsed and checked (see **Safety model** below). Every run
+returns provenance (staging, migrations, routing, flags) for auditing.
 
-This is a concrete, runnable realization of the "stage NSCLC as a verifiable
-symbolic step, then reason with evidence" idea: the deterministic TNM-9 engine
-is the *verifiable definitive-staging module*, the router + protocol modules
-are the *guideline-consistent reasoning layer*, and the provider abstraction is
-the *swappable inference backend* for teaching and evaluation.
+The "stage NSCLC symbolically, then reason with evidence" framing is the
+**design inspiration**; the deterministic TNM-9 engine is the part that is
+actually verifiable today. See [`docs/DESIGN.md`](docs/DESIGN.md) for an honest
+map of what is implemented versus what is a roadmap seam.
 
 ---
 
@@ -73,11 +74,13 @@ the *swappable inference backend* for teaching and evaluation.
 | Stage router | `nsclc_agent/staging/router.py` | maps stage group → protocol module |
 | Protocol modules | `nsclc_agent/prompts/*.md` | Stage I, II, IIIA, IIIB, IIIC, IVA, IVB (v3.3) |
 | Perception layer | `nsclc_agent/imaging.py` | reads films → proposed cTNM (vision, e.g. Gemini/Poe) |
+| Safety gates | `nsclc_agent/safety.py` | code-level clinical gates (pathology, driver↔IO, N3-surgery, N2) |
+| Output validation | `nsclc_agent/validation.py` | JSON/structure check + fabricated-evidence detection |
 | Provider layer | `nsclc_agent/providers/` | LiteLLM · Azure · Poe · MiniMax · mock (text + vision) |
-| Agent orchestrator | `nsclc_agent/agent.py` | (read films →) case → stage → route → prompt → LLM |
+| Agent orchestrator | `nsclc_agent/agent.py` | (read films →) case → stage → gates → route → LLM → validate |
 | CLI | `nsclc_agent/cli.py` | `stage`, `route`, `read`, `run`, `batch`, `selftest`, … |
 | Example cases | `examples/cases/*.json` | one per stage band + an imaging cross-check case |
-| Tests | `tests/` | 106 tests, offline |
+| Tests | `tests/` | 134 tests, offline |
 
 **Stage coverage.** The engine stages *all* groups (0/I through IVB), and a
 dedicated protocol module ships for **every treatment-bearing stage**: Stage I
@@ -316,24 +319,57 @@ skips film reading, since that is a model call). Attach films to `run` with
 
 ```bash
 pip install pytest
-python -m pytest -q        # 106 tests, fully offline
+python -m pytest -q        # 134 tests, fully offline
 ```
 
-See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture, the mapping to the
-active-perception / verifiable-staging design goals, and extension points.
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture, the honest
+implemented-vs-roadmap map, and extension points.
 
-## Safety & scope
+---
 
+## Safety model
+
+Prose rules inside a system prompt are not controls — a model can ignore them.
+The high-consequence rules are therefore enforced in **code, outside the model**:
+
+| Guard | Behavior | Flag / effect |
+|---|---|---|
+| Unknown **M** | never defaulted to M0; T+N without M does **not** stage | `STAGING_INCOMPLETE_M_UNKNOWN` (blocks) |
+| Wrong **edition** | only AJCC/UICC 9th implemented; other editions refused | `STAGING_EDITION_UNSUPPORTED` (blocks) |
+| **Pathology unconfirmed** | case flagged not-NSCLC never enters a treatment module | `GATE_BLOCK[PATHOLOGY_UNCONFIRMED]` |
+| **Driver ↔ IO conflict** | EGFR/ALK+ output that recommends immunotherapy | `GATE_HARD[DRIVER_IO_CONFLICT]` |
+| **N3 + surgery** | N3/IIIC output with a surgical term | `GATE_HARD[N3_SURGERY]` |
+| **N2 imaging-only** | curative conclusion without invasive nodal staging | `GATE_WARN[N2_UNCONFIRMED]` |
+| **Low-confidence films** | proposed descriptors not used to stage | `IMAGING_LOW_CONFIDENCE_NOT_STAGED` |
+| **Fabricated evidence** | `tool_call`/`sources`/PMID in output with no real retrieval | `EVIDENCE_UNVERIFIED` |
+| **Malformed output** | reply is not valid JSON | `OUTPUT_NOT_JSON` |
+
+Additional scope notes:
 - Educational / research only; not a medical device; no patient data included.
-- The protocol modules enforce their own safety rules (trial-boundary
-  discipline, driver exclusions, no-surgery-for-N3, biomarker-first, etc.).
-- The agent never overrides the deterministic stage and flags every ambiguity
-  (`STAGE_MISMATCH`, `MODULE_UNAVAILABLE`, `STAGING_ERROR`, …) instead of
-  silently proceeding.
-- Film reading is **advisory**: descriptors are labeled
-  `MODEL_PROPOSED_UNVERIFIED`, cross-checked against human/pathologic TNM
-  (`IMAGING_DISCORDANCE`), and never used to assign the stage directly. Use
-  only de-identified images.
+- The agent never overrides the deterministic stage; ambiguity is flagged
+  (`STAGE_MISMATCH`, `STAGING_ERROR`, …), never silently resolved.
+- Film reading is advisory: descriptors are
+  `AI_SUGGESTED_FINDINGS_FOR_RADIOLOGIST_REVIEW`, cross-checked against
+  human/pathologic TNM (`IMAGING_DISCORDANCE`), gated by confidence, and — when
+  used to stage — marked **provisional** (the model is told not to present the
+  stage as definitive). Only `https`/local de-identified images are accepted.
+
+## What this is NOT (honest limitations)
+
+- **No real evidence retrieval.** The protocol modules ask the model to emit
+  `tool_call` / `pubmed_search` / `sources` fields, but this toolkit performs no
+  PubMed/FDA/guideline/ClinicalTrials lookup. Any such fields in the output are
+  model-generated and are flagged `EVIDENCE_UNVERIFIED`. Do not treat cited
+  trials/PMIDs as verified.
+- **Not a clinical imaging system.** It sends exported PNG/JPEG (or `https`)
+  images to a general vision model. No DICOM/series parsing, pixel spacing, SUV,
+  registration, or prior-study comparison — it cannot perform imaging staging.
+- **Only the AJCC/UICC 9th edition** is implemented (8th-edition staging is
+  refused, not approximated).
+- **No independent clinical validation.** The 134 tests check the code against
+  the project's own expectations; there is no external gold-standard,
+  multi-reader, or prospective validation, and no PHI de-identification, access
+  control, or immutable audit chain. Not for real patient care.
 
 ## License
 

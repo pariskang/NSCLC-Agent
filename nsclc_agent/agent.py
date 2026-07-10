@@ -22,8 +22,18 @@ from .imaging import ImagingFindings, ImagingReader
 from .prompts import PromptModule, load_module
 from .providers.base import GenerationParams, LLMProvider, LLMResponse, Message
 from .providers.registry import build_provider
-from .staging import RouteResult, StageResult, StagingError, route, stage_from_strings
+from .safety import evaluate_gates
+from .staging import (
+    RouteResult, StageResult, StagingError, normalize_edition, route,
+    stage_from_strings,
+)
 from .staging.tnm import TNM
+from .validation import validate_output
+
+#: imaging confidence levels required before proposed descriptors are allowed
+#: to seed the deterministic stage. Anything else (low/none/absent) stays
+#: advisory only — a mechanical mapping cannot make an unreliable input reliable.
+_ADEQUATE_CONFIDENCE = {"high", "moderate"}
 
 _EDU_DISCLAIMER = (
     "EDUCATIONAL / RESEARCH USE ONLY. This system generates decision-support "
@@ -126,13 +136,15 @@ class NSCLCAgent:
 
     def _ingest_imaging(
         self, case: Case, findings: ImagingFindings
-    ) -> tuple[Case, list[str]]:
+    ) -> tuple[Case, list[str], bool]:
         """Fold model-proposed descriptors into the case, safely.
 
         Human/pathologic descriptors stay authoritative and are only
         *cross-checked* (discordance is flagged, never overridden). Descriptors
-        the case is missing are *seeded* from the proposal and flagged as
-        radiographic/unverified so the deterministic engine can still stage.
+        the case is missing may be *seeded* from the proposal so the engine can
+        still stage — but only when the reader's confidence is adequate, and the
+        resulting stage is marked PROVISIONAL (not authoritative). Returns the
+        (possibly updated) case, flags, and whether staging is now provisional.
         """
         flags: list[str] = []
         proposed = {
@@ -140,34 +152,51 @@ class NSCLCAgent:
             "n": findings.candidate_n,
             "m": findings.candidate_m,
         }
-        seeded: dict[str, str] = {}
+        # Cross-check any human descriptors regardless of confidence.
         for desc in ("t", "n", "m"):
             human = getattr(case, desc)
             prop = proposed[desc]
-            if human and prop:
-                if str(human).strip() != str(prop).strip():
-                    flags.append(
-                        f"IMAGING_DISCORDANCE[{desc.upper()}]: case says "
-                        f"{human} but the film reader proposed {prop} — the "
-                        f"case value is used for staging; reconcile before use."
-                    )
-            elif not human and prop:
-                seeded[desc] = prop
-        if seeded:
-            new_case = replace(case, **seeded)
+            if human and prop and str(human).strip() != str(prop).strip():
+                flags.append(
+                    f"IMAGING_DISCORDANCE[{desc.upper()}]: case says "
+                    f"{human} but the film reader proposed {prop} — the "
+                    f"case value is used for staging; reconcile before use."
+                )
+
+        conf = (findings.confidence or "").strip().lower()
+        adequate = conf in _ADEQUATE_CONFIDENCE
+        seedable = {d: proposed[d] for d in ("t", "n", "m")
+                    if not getattr(case, d) and proposed[d]}
+
+        provisional = False
+        new_case = case
+        if seedable and not adequate:
+            # Do NOT let low/unspecified-confidence reads drive the deterministic
+            # stage: a mechanical mapping cannot turn an unreliable input into a
+            # reliable stage. Keep them advisory only.
             flags.append(
-                "RADIOGRAPHIC_TNM_PROPOSED: staged from model-proposed "
-                "descriptors ("
-                + ", ".join(f"c{d.upper()}={v}" for d, v in seeded.items())
-                + ") — provisional cTNM, pending radiologist/pathology "
-                "confirmation."
+                "IMAGING_LOW_CONFIDENCE_NOT_STAGED: reader confidence is "
+                f"'{findings.confidence or 'unspecified'}', so proposed "
+                "descriptor(s) "
+                + ", ".join(f"c{d.upper()}={v}" for d, v in seedable.items())
+                + " were NOT used to compute a stage — obtain confirmatory "
+                "imaging/tissue before staging."
             )
-        else:
-            new_case = case
+        elif seedable:
+            new_case = replace(case, **seedable)
+            provisional = True
+            flags.append(
+                "RADIOGRAPHIC_TNM_PROPOSED: stage computed from model-proposed "
+                "descriptors ("
+                + ", ".join(f"c{d.upper()}={v}" for d, v in seedable.items())
+                + ") — PROVISIONAL cTNM, NOT authoritative, pending "
+                "radiologist/pathology confirmation."
+            )
+
         hint = self._next_step_hint(new_case, findings)
         if hint:
             flags.append(hint)
-        return new_case, flags
+        return new_case, flags, provisional
 
     def _next_step_hint(
         self, case: Case, findings: ImagingFindings
@@ -199,9 +228,28 @@ class NSCLCAgent:
 
     def resolve_stage(self, case: Case) -> tuple[Optional[StageResult], list[str]]:
         flags: list[str] = []
+
+        # Refuse to stage under an edition this engine does not implement,
+        # rather than silently applying the 9th-edition table (version pollution).
+        try:
+            edition = normalize_edition(case.staging_system)
+        except StagingError as exc:
+            flags.append(f"STAGING_EDITION_UNSUPPORTED: {exc}")
+            return None, flags
+
         if case.has_tnm():
+            # M is required. 'M0' is a conclusion after metastatic workup, never
+            # assumed from a missing field.
+            if not case.m:
+                flags.append(
+                    "STAGING_INCOMPLETE_M_UNKNOWN: T and N provided but M is "
+                    "missing. M is not defaulted to M0 — complete the "
+                    "metastatic workup (contrast CT, PET/CT, brain MRI as "
+                    "indicated) and provide M before staging."
+                )
+                return None, flags
             try:
-                result = stage_from_strings(case.t, case.n, case.m or "M0")
+                result = stage_from_strings(case.t, case.n, case.m)
             except StagingError as exc:
                 flags.append(f"STAGING_ERROR: {exc}")
                 return None, flags
@@ -213,13 +261,18 @@ class NSCLCAgent:
                 )
             return result, flags
         if case.stage_group:
-            flags.append("STAGE_FROM_LABEL: no TNM provided; using the given "
-                         "stage_group without deterministic verification")
+            flags.append(
+                "STAGE_FROM_LABEL: no TNM provided; using the given "
+                "stage_group WITHOUT deterministic verification and WITHOUT a "
+                "confirmed edition — the label's edition is unknown, so 8th/9th "
+                "migration cannot be checked."
+            )
             return (
                 StageResult(
                     tnm=TNM(t=case.t or "TX", n=case.n or "NX",
                             m=case.m or "MX"),
                     stage_group=case.stage_group,
+                    edition="unverified (from provided label)",
                 ),
                 flags,
             )
@@ -243,23 +296,41 @@ class NSCLCAgent:
 
     # -- prompt assembly ----------------------------------------------------
 
-    def _staging_preamble(self, stage_result: StageResult) -> str:
-        payload = stage_result.to_dict()
-        lines = [
+    def _staging_preamble(
+        self, stage_result: StageResult, *, provisional: bool = False
+    ) -> str:
+        header = (
+            "=== PROVISIONAL RADIOGRAPHIC STAGING (computed by the symbolic "
+            "engine from MODEL-PROPOSED, UNVERIFIED descriptors) ==="
+            if provisional else
             "=== DETERMINISTIC STAGING (computed by a verified symbolic engine, "
-            "not by you) ===",
+            "not by you) ==="
+        )
+        lines = [
+            header,
             f"TNM: {stage_result.tnm}",
             f"Stage group: {stage_result.stage_group} ({stage_result.edition})",
         ]
+        if stage_result.tnm.basis:
+            lines.append(f"Staging basis: {stage_result.tnm.basis}")
         if stage_result.migration_notes:
             lines.append("8th→9th migration: "
                          + " ".join(stage_result.migration_notes))
         if stage_result.descriptor_notes:
             lines.append("Notes: " + " ".join(stage_result.descriptor_notes))
-        lines.append(
-            "Treat this stage assignment as authoritative. Do NOT re-derive or "
-            "override the stage group; reason about management within it."
-        )
+        if provisional:
+            lines.append(
+                "This stage is PROVISIONAL: at least one descriptor came from an "
+                "unverified film reading, NOT from a radiologist's report or "
+                "pathology. Do NOT present it as definitive. State explicitly "
+                "that it is pending confirmation and name the confirmatory step "
+                "before any treatment commitment."
+            )
+        else:
+            lines.append(
+                "Treat this stage assignment as authoritative. Do NOT re-derive "
+                "or override the stage group; reason about management within it."
+            )
         return "\n".join(lines)
 
     def _imaging_block(self, findings: ImagingFindings) -> str:
@@ -281,8 +352,10 @@ class NSCLCAgent:
         stage_result: StageResult,
         *,
         imaging_findings: Optional[ImagingFindings] = None,
+        provisional: bool = False,
     ) -> list[Message]:
-        system = module.system_prompt + "\n\n" + self._staging_preamble(stage_result)
+        system = module.system_prompt + "\n\n" + self._staging_preamble(
+            stage_result, provisional=provisional)
         user = case.render_user_message()
         if imaging_findings is not None:
             user += "\n\n" + self._imaging_block(imaging_findings)
@@ -305,6 +378,7 @@ class NSCLCAgent:
         case_id = case.case_id
         imaging_flags: list[str] = []
         imaging_findings: Optional[ImagingFindings] = None
+        provisional = False
 
         # -- perception layer: read films → proposed descriptors ------------
         if case.has_images() and read_films and not dry_run:
@@ -313,7 +387,8 @@ class NSCLCAgent:
             except Exception as exc:  # graceful: fall back to any given TNM
                 imaging_flags.append(f"IMAGING_READ_FAILED: {exc}")
             else:
-                case, ingest_flags = self._ingest_imaging(case, imaging_findings)
+                case, ingest_flags, provisional = self._ingest_imaging(
+                    case, imaging_findings)
                 imaging_flags.extend(ingest_flags)
         elif case.has_images() and dry_run:
             imaging_flags.append(
@@ -333,6 +408,18 @@ class NSCLCAgent:
                 case_id, staging_dict, routing_dict, None, None, None,
                 flags=flags, error="Could not resolve stage/routing for case",
                 imaging=imaging_dict,
+            )
+
+        # -- pre-inference safety gates -------------------------------------
+        pre_gates = evaluate_gates(case, stage_result, phase="pre")
+        flags.extend(g.as_flag() for g in pre_gates)
+        blocking = [g for g in pre_gates if g.severity == "block"]
+        if blocking:
+            return AgentResult(
+                case_id, staging_dict, routing_dict, None, None, None,
+                flags=flags, imaging=imaging_dict,
+                error="Blocked by clinical safety gate: "
+                      + "; ".join(g.code for g in blocking),
             )
 
         module_key = route_result.module_key
@@ -355,7 +442,8 @@ class NSCLCAgent:
 
         module = load_module(module_key)
         messages = self.build_messages(
-            case, module, stage_result, imaging_findings=imaging_findings
+            case, module, stage_result, imaging_findings=imaging_findings,
+            provisional=provisional,
         )
 
         if dry_run:
@@ -379,6 +467,14 @@ class NSCLCAgent:
                 prov_name, None, flags=flags, error=str(exc),
                 imaging=imaging_dict,
             )
+
+        # -- post-inference validation + safety gates -----------------------
+        validation = validate_output(response.content)
+        flags.extend(validation.flags)
+        post_gates = evaluate_gates(
+            case, stage_result, output_text=response.content, phase="post")
+        flags.extend(g.as_flag() for g in post_gates)
+
         return AgentResult(
             case_id, staging_dict, routing_dict, module_key, prov.name,
             response, flags=flags, imaging=imaging_dict,

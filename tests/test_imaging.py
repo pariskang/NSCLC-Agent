@@ -151,15 +151,50 @@ def test_imaging_seeds_missing_tnm_then_engine_stages(tmp_path):
     p = tmp_path / "s.png"; p.write_bytes(_PNG)
     agent, _ = _agent_with_vision({
         "candidate_t": "T2b", "candidate_n": "N2b", "candidate_m": "M0",
+        "confidence": "moderate",
     })
     case = Case(images=[str(p)], question="plan?")
     result = agent.run(case)
-    # deterministic engine still computes the stage from the seeded descriptors
+    # deterministic engine still computes the stage from the seeded descriptors,
+    # but the stage is provisional (not authoritative)
     assert result.staging["stage_group"] == "IIIB"
     assert result.module_key == "stage3b"
     assert any("RADIOGRAPHIC_TNM_PROPOSED" in f for f in result.flags)
     assert result.imaging["candidate_n"] == "N2b"
     assert result.error is None
+
+
+def test_low_confidence_imaging_not_staged(tmp_path):
+    p = tmp_path / "s.png"; p.write_bytes(_PNG)
+    agent, _ = _agent_with_vision({
+        "candidate_t": "T2b", "candidate_n": "N2b", "candidate_m": "M0",
+        "confidence": "low",
+    })
+    case = Case(images=[str(p)], question="plan?")
+    result = agent.run(case)
+    # low-confidence descriptors must NOT drive a stage
+    assert any("IMAGING_LOW_CONFIDENCE_NOT_STAGED" in f for f in result.flags)
+    assert result.error is not None  # nothing to stage → unresolved
+
+
+def test_provisional_staging_preamble_not_authoritative(tmp_path):
+    p = tmp_path / "s.png"; p.write_bytes(_PNG)
+    agent, _ = _agent_with_vision({
+        "candidate_t": "T2b", "candidate_n": "N2b", "candidate_m": "M0",
+        "confidence": "high",
+    })
+    case = Case(images=[str(p)])
+    findings = agent.read_imaging(case)
+    case2, _flags, provisional = agent._ingest_imaging(case, findings)
+    assert provisional is True
+    from nsclc_agent.prompts import load_module
+    stage_result, _ = agent.resolve_stage(case2)
+    msgs = agent.build_messages(case2, load_module("stage3b"), stage_result,
+                                provisional=True)
+    assert "PROVISIONAL RADIOGRAPHIC STAGING" in msgs[0].content
+    assert "Do NOT present it as definitive" in msgs[0].content
+    # the authoritative-staging instruction must NOT be present in provisional mode
+    assert "Treat this stage assignment as authoritative" not in msgs[0].content
 
 
 def test_imaging_discordance_flagged_case_value_wins(tmp_path):
@@ -188,6 +223,7 @@ def test_imaging_incomplete_emits_next_step(tmp_path):
     p = tmp_path / "s.png"; p.write_bytes(_PNG)
     agent, _ = _agent_with_vision({
         "candidate_t": "T2b", "candidate_n": None, "candidate_m": "M0",
+        "confidence": "high",
     })
     case = Case(images=[str(p)])
     result = agent.run(case)
@@ -199,10 +235,11 @@ def test_imaging_findings_injected_into_reasoning_prompt(tmp_path):
     p = tmp_path / "s.png"; p.write_bytes(_PNG)
     agent, _ = _agent_with_vision({
         "candidate_t": "T2b", "candidate_n": "N2b", "candidate_m": "M0",
+        "confidence": "moderate",
     })
     case = Case(images=[str(p)])
     findings = agent.read_imaging(case)
-    case2, _ = agent._ingest_imaging(case, findings)
+    case2, _flags, _prov = agent._ingest_imaging(case, findings)
     stage_result, _ = agent.resolve_stage(case2)
     from nsclc_agent.prompts import load_module
     msgs = agent.build_messages(case2, load_module("stage3b"), stage_result,
