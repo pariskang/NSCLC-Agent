@@ -1,0 +1,38 @@
+{
+  "default_provider": "mock",
+  "vision_provider": "gemini_vision",
+  "generation": { "temperature": 0.2, "max_tokens": 4096 },
+  "providers": {
+    "mock": { "type": "mock", "model": "mock-echo" },
+    "litellm": {
+      "type": "litellm",
+      "model": "gpt-4o",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "azure": {
+      "type": "azure",
+      "endpoint": "https://YOUR-RESOURCE.openai.azure.com",
+      "deployment": "gpt-4o",
+      "api_version": "2024-10-21",
+      "api_key_env": "AZURE_OPENAI_API_KEY"
+    },
+    "poe": {
+      "type": "poe",
+      "model": "GPT-4o",
+      "api_key_env": "POE_API_KEY"
+    },
+    "gemini_vision": {
+      "type": "poe",
+      "model": "Gemini-3.1-Pro",
+      "vision": true,
+      "api_key_env": "POE_API_KEY"
+    },
+    "minimax": {
+      "type": "minimax",
+      "model": "MiniMax-Text-01",
+      "base_url": "https://api.minimaxi.com/v1",
+      "api_key_env": "MINIMAX_API_KEY",
+      "group_id_env": "MINIMAX_GROUP_ID"
+    }
+  }
+}

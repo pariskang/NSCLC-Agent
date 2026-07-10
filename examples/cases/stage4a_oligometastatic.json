@@ -1,0 +1,14 @@
+{
+  "id": "STAGE4A-OLIGO-EGFR",
+  "t": "T2a",
+  "n": "N0",
+  "m": "M1b",
+  "staging_system": "AJCC9",
+  "presentation": "54-year-old never-smoker with a right lower lobe adenocarcinoma and a single adrenal metastasis (M1b). Brain MRI negative. Comprehensive NGS: EGFR exon 19 deletion. PD-L1 TPS 5%. ECOG 0.",
+  "question": "Recommend first-line systemic therapy and address the oligometastatic question.",
+  "clinical_scenario": "OLIGOMETASTATIC_LCT_CANDIDATE",
+  "m_substage": "M1b",
+  "disease_extent": "OLIGOMETASTATIC",
+  "histologic_category": "adenocarcinoma",
+  "biomarkers": { "egfr": "Ex19del", "pd_l1_tps": 5, "ngs_done": true }
+}

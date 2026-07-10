@@ -1,0 +1,15 @@
+{
+  "id": "IMAGING-PETCT-CROSSCHECK",
+  "t": "T2b",
+  "n": "N2b",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "images": ["examples/images/sample_placeholder.png"],
+  "presentation": "64-year-old smoker. Staging PET-CT and brain MRI attached. Pathology (EBUS-TBNA) confirms a 6 cm left upper lobe adenocarcinoma with malignant nodes at stations 4L and 7 (multi-station N2 = N2b), no distant disease. EGFR/ALK negative; PD-L1 TPS 10%.",
+  "question": "Recommend the management pathway for this locally advanced case.",
+  "clinical_scenario": "STAGING_WITH_IMAGING",
+  "histologic_category": "adenocarcinoma",
+  "driver_mutations": { "egfr": "negative", "alk": "negative" },
+  "pd_l1": { "tps": 10 },
+  "note_for_learner": "Demonstrates the perception layer as a CROSS-CHECK: pathologic TNM (T2bN2bM0 = 9th-ed. IIIB, multi-station N2 upstaged from 8th-ed. IIIA) is authoritative and stages deterministically; attached films are read only to PROPOSE descriptors and flag any discordance. With the offline mock (which cannot read images) the read returns empty and staging proceeds unchanged — configure a Poe→Gemini vision backend to exercise real film reading."
+}

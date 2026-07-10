@@ -1,0 +1,13 @@
+{
+  "id": "STAGE4B-POLY-DRIVERNEG",
+  "t": "T3",
+  "n": "N2b",
+  "m": "M1c2",
+  "staging_system": "AJCC9",
+  "presentation": "71-year-old former smoker with metastatic non-squamous NSCLC involving liver, bone, and adrenal glands (multiple organ systems, M1c2). Brain MRI negative. Comprehensive NGS driver-negative; PD-L1 TPS 5%. ECOG 1. No oncologic emergency.",
+  "question": "Recommend first-line systemic therapy and the supportive-care plan.",
+  "clinical_scenario": "FIRST_LINE_SYSTEMIC",
+  "m_substage": "M1c2",
+  "histologic_category": "adenocarcinoma",
+  "biomarkers": { "actionable_driver_present": false, "pd_l1_tps": 5, "ngs_done": true }
+}

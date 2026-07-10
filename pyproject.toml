@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nsclc-agent"
+version = "0.1.0"
+description = "Evidence-based, stage-aware NSCLC decision-support agent for teaching and testing (educational use only)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["nsclc", "oncology", "clinical-decision-support", "llm", "education"]
+dependencies = []
+
+[project.optional-dependencies]
+# Core needs nothing beyond the standard library. Extras enable specific backends.
+yaml = ["pyyaml>=6.0"]
+litellm = ["litellm>=1.40"]
+all = ["pyyaml>=6.0", "litellm>=1.40"]
+dev = ["pytest>=7.0", "pyyaml>=6.0"]
+
+[project.scripts]
+nsclc-agent = "nsclc_agent.cli:main"
+
+[tool.setuptools]
+packages = ["nsclc_agent", "nsclc_agent.providers", "nsclc_agent.staging",
+            "nsclc_agent.prompts"]
+
+[tool.setuptools.package-data]
+"nsclc_agent.prompts" = ["*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,14 @@
+{
+  "id": "STAGE3A-RESECTABLE-PERIOP",
+  "t": "T3",
+  "n": "N1",
+  "m": "M0",
+  "staging_system": "AJCC9",
+  "presentation": "60-year-old former smoker with a 6 cm left lower lobe adenocarcinoma and hilar (N1) nodal involvement (AJCC 9th ed. stage IIIA), presenting before surgery. MDT judges the tumor resectable and the patient operable (ECOG 0, adequate reserve). PET/CT and brain MRI confirm M0. EGFR and ALK negative; PD-L1 TPS 25%.",
+  "question": "Recommend the perioperative treatment strategy with evidence.",
+  "clinical_scenario": "PERIOPERATIVE_RESECTABLE",
+  "histologic_category": "adenocarcinoma",
+  "driver_mutations": { "egfr": "negative", "alk": "negative" },
+  "pd_l1": { "tps": 25 },
+  "note_for_learner": "Driver-negative, resectable, pre-surgery: perioperative chemo-immunotherapy (e.g., KEYNOTE-671 pembrolizumab) is preferred over surgery-first; EGFR/ALK are absolute IO exclusions if present."
+}

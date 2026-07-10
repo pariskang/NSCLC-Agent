@@ -1,0 +1,11 @@
+# Core NSCLC-Agent runs on the Python standard library alone.
+# Uncomment the extras you need:
+
+# YAML config files (config.yaml). JSON config works without this.
+# pyyaml>=6.0
+
+# LiteLLM backend (unified access to 100+ model providers).
+# litellm>=1.40
+
+# Test suite.
+# pytest>=7.0

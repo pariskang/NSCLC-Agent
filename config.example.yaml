@@ -1,0 +1,68 @@
+# NSCLC Agent configuration (example).
+#
+# Copy to config.yaml and edit. Secrets are NEVER stored here directly —
+# reference an environment variable via *_env fields. The agent reads the
+# named variable at runtime.
+#
+# Select the active backend with `default_provider` or the CLI `-p/--provider`
+# flag. All four requested backends are shown below plus the offline `mock`.
+
+default_provider: mock
+
+# Provider used by the perception layer to READ radiology films into candidate
+# TNM descriptors. Optional. If omitted, the agent auto-picks the first provider
+# flagged `vision: true`. The film reader only PROPOSES descriptors — the
+# deterministic engine still assigns the stage.
+vision_provider: gemini_vision
+
+generation:
+  temperature: 0.2      # low temperature for reproducible teaching output
+  max_tokens: 4096
+
+providers:
+
+  # -- Offline stub: no key, no network. Great for demos / CI / wiring checks.
+  mock:
+    type: mock
+    model: mock-echo
+
+  # -- LiteLLM: one call routes to 100+ backends by changing `model`.
+  #    Requires `pip install litellm`. Set the relevant key env var.
+  litellm:
+    type: litellm
+    model: gpt-4o                 # or azure/<deployment>, anthropic/claude-..., etc.
+    api_key_env: OPENAI_API_KEY   # key name in the environment
+    # api_base: https://your-litellm-proxy/v1   # optional (LiteLLM proxy)
+
+  # -- Azure OpenAI (direct). Deployment lives in the URL; api-key header.
+  azure:
+    type: azure
+    endpoint: https://YOUR-RESOURCE.openai.azure.com
+    deployment: gpt-4o           # your Azure deployment name
+    api_version: "2024-10-21"
+    api_key_env: AZURE_OPENAI_API_KEY
+
+  # -- Poe (OpenAI-compatible at https://api.poe.com/v1). Model = Poe bot name.
+  poe:
+    type: poe
+    model: GPT-4o                 # e.g. GPT-4o, Claude-Sonnet-4, Gemini-2.5-Pro
+    api_key_env: POE_API_KEY
+
+  # -- Vision backend for reading films (读片): Gemini via Poe.
+  #    `vision: true` marks it multimodal so it can be auto-selected as the
+  #    vision_provider. `model` is the Poe bot name — set it to the Gemini bot
+  #    your Poe account exposes (e.g. Gemini-3.1-Pro, Gemini-2.5-Pro).
+  gemini_vision:
+    type: poe
+    model: Gemini-3.1-Pro
+    vision: true
+    api_key_env: POE_API_KEY
+
+  # -- MiniMax (OpenAI-shaped /text/chatcompletion_v2).
+  #    base_url: api.minimaxi.com (CN) or api.minimax.io (international).
+  minimax:
+    type: minimax
+    model: MiniMax-Text-01
+    base_url: https://api.minimaxi.com/v1
+    api_key_env: MINIMAX_API_KEY
+    group_id_env: MINIMAX_GROUP_ID   # optional; only if your tenant requires it
